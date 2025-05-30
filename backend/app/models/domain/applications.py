@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, Boolean, Text, ForeignKey, DateTime, func
 from sqlalchemy.orm import relationship
-from backend.app.db.base_class import Base
+from backend.app.database.session import Base
 
 class Application(Base):
     __tablename__ = "applications"

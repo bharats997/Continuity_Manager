@@ -2,7 +2,7 @@
 from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from backend.app.db.base_class import Base
+from backend.app.database.session import Base
 from .applications import Application
 
 class Organization(Base):

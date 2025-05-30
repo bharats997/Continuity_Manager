@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from ... import models # Assuming Pydantic models are in backend/app/models/
 from ...services import department_service # Assuming service is in backend/app/services/
 from .. import deps # For get_db and RBAC
+from ..deps import RequirePermission, DepartmentPermissions # Import new permission tools
 
 router = APIRouter()
 
@@ -13,7 +14,7 @@ router = APIRouter()
 async def create_department(
     department_in: models.department.DepartmentCreate,
     db: Session = Depends(deps.get_db),
-    # current_user: models.domain.people.Person = Depends(deps.allow_department_management) # RBAC
+    current_user: models.domain.people.Person = Depends(RequirePermission(DepartmentPermissions.CREATE))
 ):
     """
     Create a new department.
@@ -32,7 +33,7 @@ async def create_department(
 async def get_department(
     department_id: int,
     db: Session = Depends(deps.get_db),
-    # current_user: models.domain.people.Person = Depends(deps.get_current_active_user) # Or a more specific read permission
+    current_user: models.domain.people.Person = Depends(RequirePermission(DepartmentPermissions.READ))
 ):
     """
     Get a specific department by its ID.
@@ -49,7 +50,7 @@ async def list_departments(
     db: Session = Depends(deps.get_db),
     skip: int = 0,
     limit: int = 100,
-    current_user: models.domain.people.Person = Depends(deps.get_current_user_placeholder)
+    current_user: models.domain.people.Person = Depends(RequirePermission(DepartmentPermissions.LIST))
 ):
     """
     List departments for the user's organization.
@@ -64,7 +65,7 @@ async def update_department(
     department_id: int,
     department_in: models.department.DepartmentUpdate,
     db: Session = Depends(deps.get_db),
-    # current_user: models.domain.people.Person = Depends(deps.allow_department_management)
+    current_user: models.domain.people.Person = Depends(RequirePermission(DepartmentPermissions.UPDATE))
 ):
     """
     Update an existing department.
@@ -84,7 +85,7 @@ async def update_department(
 async def delete_department(
     department_id: int,
     db: Session = Depends(deps.get_db),
-    # current_user: models.domain.people.Person = Depends(deps.allow_department_management)
+    current_user: models.domain.people.Person = Depends(RequirePermission(DepartmentPermissions.DELETE))
 ):
     """
     Delete a department.

@@ -5,6 +5,7 @@ from sqlalchemy.sql import func
 from ...database.session import Base # Assuming Base is in database.session
 from .roles import Role # Assuming Role model is in roles.py
 from .applications import Application # Import Application
+from .departments import Department # Import Department for headed_departments
 
 # Association table for the many-to-many relationship between people and roles
 people_roles_association = Table(
@@ -39,6 +40,7 @@ class Person(Base):
     roles = relationship("Role", secondary=people_roles_association, back_populates="people") # M2M for roles
 
     owned_applications = relationship("Application", foreign_keys="[Application.appOwnerId]", back_populates="appOwner")
+    headed_departments = relationship("Department", foreign_keys="[Department.department_head_id]", back_populates="department_head")
 
     # Self-referential relationships for createdBy and updatedBy if needed for ORM access
     # creator = relationship("Person", remote_side=[id], foreign_keys=[createdBy])

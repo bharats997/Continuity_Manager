@@ -7,9 +7,10 @@ from .apis.endpoints import departments as departments_router
 from .apis.endpoints import people as people_router
 from .apis.endpoints import roles as roles_router
 from .apis.endpoints import locations as locations_router # Added locations_router
+from .apis.endpoints import applications as applications_router
 # Import other necessary modules like database session, base for table creation etc.
 from .database.session import engine, Base
-from .models.domain import organizations, departments, people, roles, locations # Added locations, Ensure all domain models are imported for Base.metadata
+from .models.domain import organizations, departments, people, roles, locations, applications # Added locations, Ensure all domain models are imported for Base.metadata
 
 # Create database tables if they don't exist
 # In a production app, you'd likely use Alembic for migrations.
@@ -42,6 +43,7 @@ app.include_router(departments_router.router, prefix="/api/v1/departments", tags
 app.include_router(people_router.router, prefix="/api/v1/people", tags=["People"])
 app.include_router(roles_router.router, prefix="/api/v1/roles", tags=["Roles"])
 app.include_router(locations_router.router, prefix="/api/v1/locations", tags=["Locations"]) # Added locations_router
+app.include_router(applications_router.router, prefix="/api/v1/applications", tags=["Applications"])
 
 @app.get("/api/v1/health", tags=["Health"])
 async def health_check():

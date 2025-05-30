@@ -3,6 +3,7 @@ from sqlalchemy import Column, Integer, String, Text, DateTime
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from ...database.session import Base # Assuming Base is in database.session
+from .permissions import role_permissions_association # Import the association table
 
 class Role(Base):
     __tablename__ = "roles"
@@ -15,3 +16,10 @@ class Role(Base):
 
     # Relationship to people
     people = relationship("Person", secondary="people_roles", back_populates="roles")
+
+    # Relationship to permissions (many-to-many)
+    permissions = relationship(
+        "Permission",
+        secondary=role_permissions_association,
+        back_populates="roles"
+    )

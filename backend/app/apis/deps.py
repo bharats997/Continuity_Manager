@@ -9,7 +9,31 @@ from ..database.session import SessionLocal
 # In a real app, this would come from your auth system (e.g., JWT decoding)
 from ..models.person import Person as UserSchema # Using Person Pydantic model as a placeholder
 from ..models.domain.people import Person as PersonDB # SQLAlchemy model
+from ..models.domain.roles import Role as RoleDB # Import RoleDB for joinedload
 from ..services.person_service import person_service
+
+# --- Permission Constants ---
+class DepartmentPermissions:
+    CREATE = "department:create"
+    READ = "department:read"
+    UPDATE = "department:update"
+    DELETE = "department:delete"
+    LIST = "department:list"
+
+class RolePermissions:
+    CREATE = "role:create"
+    READ = "role:read"
+    UPDATE = "role:update"
+    DELETE = "role:delete"
+    LIST = "role:list"
+    ASSIGN_PERMISSIONS = "role:assign_permissions"
+
+# Consider adding a helper to get all defined permission names if needed for seeding/admin UI
+ALL_DEFINED_PERMISSIONS = [
+    DepartmentPermissions.CREATE, DepartmentPermissions.READ, DepartmentPermissions.UPDATE, DepartmentPermissions.DELETE, DepartmentPermissions.LIST,
+    RolePermissions.CREATE, RolePermissions.READ, RolePermissions.UPDATE, RolePermissions.DELETE, RolePermissions.LIST, RolePermissions.ASSIGN_PERMISSIONS
+]
+
 
 # Placeholder for OAuth2 scheme if you use token-based auth
 # oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token") # Adjust tokenUrl as needed
@@ -46,7 +70,10 @@ async def get_current_user_placeholder(
         # to ensure it's bound to this session and avoid DetachedInstanceError.
         user = (
             db.query(PersonDB)
-            .options(joinedload(PersonDB.organization))
+            .options(
+                joinedload(PersonDB.organization),
+                joinedload(PersonDB.roles).joinedload(RoleDB.permissions)
+            )
             .filter(PersonDB.id == user_initial_fetch.id)
             .first()
         )
@@ -102,6 +129,31 @@ def allow_department_management(current_user: PersonDB = Depends(get_current_use
             detail="You do not have permission to manage departments."
         )
     return current_user
+
+# --- New Permission-Based RBAC Dependency ---
+def RequirePermission(permission_name: str):
+    """
+    Dependency factory that creates a dependency to check for a specific permission.
+    """
+    async def permission_checker(current_user: PersonDB = Depends(get_current_active_user)) -> PersonDB:
+        if not current_user.roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"User has no roles assigned. Access denied for permission: {permission_name}"
+            )
+        
+        for role in current_user.roles:
+            if role.permissions:
+                for perm in role.permissions:
+                    if perm.name == permission_name:
+                        return current_user # Permission found
+        
+        # If loop completes, permission was not found
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"You do not have the required permission: '{permission_name}'"
+        )
+    return permission_checker
 
 # For People Management (FR 1.2) - Typically Admin only
 def allow_people_management(current_user: PersonDB = Depends(get_current_user_placeholder)):

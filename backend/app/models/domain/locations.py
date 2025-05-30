@@ -3,6 +3,7 @@ from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from ...database.session import Base # Corrected import path
+from .departments import department_locations_association # Import association table
 
 class Location(Base):
     __tablename__ = "locations"
@@ -29,6 +30,7 @@ class Location(Base):
     # Relationships
     organization = relationship("Organization", back_populates="locations")
     people = relationship("Person", back_populates="location") # One location can have multiple people
+    departments = relationship("Department", secondary=department_locations_association, back_populates="locations")
 
     def __repr__(self):
         return f"<Location(id={self.id}, name='{self.name}', organizationId={self.organizationId})>"
