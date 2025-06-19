@@ -1,74 +1,81 @@
 # backend/app/services/location_service.py
+import uuid
 from typing import List, Optional
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 from fastapi import HTTPException, status
 
 from ..models.domain.locations import Location
-from ..models.location import LocationCreate, LocationUpdate
+from ..schemas.location import LocationCreate, LocationUpdate
 from ..models.domain.organizations import Organization as OrganizationModel
 
 class LocationService:
-    def get_location_by_id_and_org(self, db: Session, location_id: int, organization_id: int) -> Optional[Location]:
+    async def get_location_by_id_and_org(self, db: AsyncSession, location_id: uuid.UUID, organization_id: uuid.UUID) -> Optional[Location]:
         """
         Retrieves a location by its ID, ensuring it belongs to the specified organization.
         """
-        location = db.query(Location).filter(
+        query = select(Location).filter(
             Location.id == location_id,
             Location.organizationId == organization_id
-        ).first()
-        # No explicit 404 here, service using this should handle if location is None
-        # Or, if we want to enforce 404 from here:
-        # if not location:
-        #     raise HTTPException(
-        #         status_code=status.HTTP_404_NOT_FOUND,
-        #         detail=f"Location with ID {location_id} not found in organization {organization_id}."
-        #     )
-        return location
+        )
+        result = await db.execute(query)
+        return result.scalar_one_or_none()
 
-    def get_location(self, db: Session, location_id: int) -> Optional[Location]:
+    async def get_location(self, db: AsyncSession, location_id: uuid.UUID) -> Optional[Location]:
         """
         Retrieves a location by its ID.
         """
-        location = db.query(Location).filter(Location.id == location_id).first()
-        # Service methods using this should handle if location is None or raise 404
-        # For example, the API layer calling this might raise HTTPException
-        return location
+        query = select(Location).filter(Location.id == location_id)
+        result = await db.execute(query)
+        return result.scalar_one_or_none()
 
-    def get_all_locations_for_organization(
-        self, db: Session, organization_id: int, skip: int = 0, limit: int = 100
+    async def get_all_locations_for_organization(
+        self, db: AsyncSession, organization_id: uuid.UUID, skip: int = 0, limit: int = 100
     ) -> List[Location]:
         """
         Retrieves all locations for a given organization.
         """
-        organization = db.query(OrganizationModel).filter(OrganizationModel.id == organization_id).first()
+        org_query = select(OrganizationModel).filter(OrganizationModel.id == organization_id)
+        organization = (await db.execute(org_query)).scalar_one_or_none()
         if not organization:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
         
-        return (
-            db.query(Location)
+        query = (
+            select(Location)
             .options(joinedload(Location.organization))
             .filter(Location.organizationId == organization_id)
             .offset(skip)
             .limit(limit)
-            .all()
         )
+        result = await db.execute(query)
+        return result.scalars().all()
 
-    def create_location(self, db: Session, location_in: LocationCreate) -> Location:
+    async def count_locations_for_organization(self, db: AsyncSession, organization_id: uuid.UUID) -> int:
+        """
+        Counts all locations for a given organization.
+        """
+        query = select(func.count()).select_from(Location).filter(Location.organizationId == organization_id)
+        count = await db.execute(query)
+        return count.scalar()
+
+    async def create_location(self, db: AsyncSession, location_in: LocationCreate) -> Location:
         """
         Creates a new location. The organizationId is expected in location_in.
         """
-        organization = db.query(OrganizationModel).filter(OrganizationModel.id == location_in.organizationId).first()
+        org_query = select(OrganizationModel).filter(OrganizationModel.id == location_in.organizationId)
+        organization = (await db.execute(org_query)).scalar_one_or_none()
         if not organization:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Organization with id {location_in.organizationId} not found."
             )
 
-        existing_location = (
-            db.query(Location)
+        existing_location_query = (
+            select(Location)
             .filter(Location.name == location_in.name, Location.organizationId == location_in.organizationId)
-            .first()
         )
+        existing_location = (await db.execute(existing_location_query)).scalar_one_or_none()
         if existing_location:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -77,32 +84,33 @@ class LocationService:
 
         db_location = Location(**location_in.model_dump())
         db.add(db_location)
-        db.commit()
-        db.refresh(db_location)
+        await db.commit()
+        await db.refresh(db_location)
         return db_location
 
-    def update_location(
-        self, db: Session, location_id: int, location_in: LocationUpdate
+    async def update_location(
+        self, db: AsyncSession, location_id: uuid.UUID, location_in: LocationUpdate
     ) -> Optional[Location]:
         """
         Updates an existing location.
         """
-        db_location = db.query(Location).filter(Location.id == location_id).first()
+        db_location_query = select(Location).filter(Location.id == location_id)
+        db_location = (await db.execute(db_location_query)).scalar_one_or_none()
         if not db_location:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Location not found")
 
         update_data = location_in.model_dump(exclude_unset=True)
         
         if "name" in update_data and update_data["name"] != db_location.name:
-            existing_location = (
-                db.query(Location)
+            existing_location_query = (
+                select(Location)
                 .filter(
                     Location.name == update_data["name"], 
                     Location.organizationId == db_location.organizationId, 
                     Location.id != location_id
                 )
-                .first()
             )
+            existing_location = (await db.execute(existing_location_query)).scalar_one_or_none()
             if existing_location:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -113,22 +121,21 @@ class LocationService:
             setattr(db_location, key, value)
 
         db.add(db_location)
-        db.commit()
-        db.refresh(db_location)
+        await db.commit()
+        await db.refresh(db_location)
         return db_location
 
-    def delete_location(self, db: Session, location_id: int) -> Optional[Location]:
+    async def delete_location(self, db: AsyncSession, location_id: uuid.UUID) -> Optional[Location]:
         """
         Deletes a location.
         """
-        db_location = db.query(Location).filter(Location.id == location_id).first()
+        db_location_query = select(Location).filter(Location.id == location_id)
+        db_location = (await db.execute(db_location_query)).scalar_one_or_none()
         if not db_location:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Location not found")
         
-        # Consider if we need to check organization_id before deleting, 
-        # but typically delete operations are on a specific ID.
-        db.delete(db_location)
-        db.commit()
+        await db.delete(db_location)
+        await db.commit()
         return db_location
 
 location_service = LocationService()

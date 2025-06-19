@@ -1,16 +1,22 @@
 # backend/app/apis/deps.py
-from typing import Generator, Optional
+import uuid # Added import
+from typing import Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import selectinload # Changed from joinedload for consistency, though selectinload is already used below
+from jose import JWTError, jwt
+from app.config import settings
+from app.schemas.token_schemas import TokenPayload
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
 
-from ..database.session import SessionLocal
+from ..db.session import get_async_db
 # Assuming a simplified User model for current_user for now
 # In a real app, this would come from your auth system (e.g., JWT decoding)
-from ..models.person import Person as UserSchema # Using Person Pydantic model as a placeholder
-from ..models.domain.people import Person as PersonDB # SQLAlchemy model
+from ..schemas.user_schemas import UserSchema # Using User Pydantic model
+from ..models.domain.users import User as UserDB # SQLAlchemy model
 from ..models.domain.roles import Role as RoleDB # Import RoleDB for joinedload
-from ..services.person_service import person_service
+from ..services.user_service import user_service
 
 # --- Permission Constants ---
 class DepartmentPermissions:
@@ -28,97 +34,121 @@ class RolePermissions:
     LIST = "role:list"
     ASSIGN_PERMISSIONS = "role:assign_permissions"
 
+class UserPermissions: # Renamed from PersonPermissions
+    CREATE = "user:create"
+    READ = "user:read"
+    UPDATE = "user:update"
+    DELETE = "user:delete"
+    LIST = "user:list"
+
+class LocationPermissions:
+    CREATE = "location:create"
+    READ = "location:read"
+    UPDATE = "location:update"
+    DELETE = "location:delete"
+    LIST = "location:list"
+
+class ApplicationPermissions:
+    CREATE = "application:create"
+    READ = "application:read"
+    UPDATE = "application:update"
+    DELETE = "application:delete"
+    LIST = "application:list"
+
+class ProcessPermissions:
+    CREATE = "process:create"
+    READ = "process:read"
+    UPDATE = "process:update"
+    DELETE = "process:delete"
+    LIST = "process:list"
+
+class BIAParameterPermissions:
+    CREATE = "bia_parameter:create"
+    READ = "bia_parameter:read"
+    UPDATE = "bia_parameter:update"
+    DELETE = "bia_parameter:delete"
+    LIST = "bia_parameter:list"
+
+class OrganizationPermissions:
+    READ = "organization:read"
+    UPDATE = "organization:update"
+    LIST_USERS = "organization:list_users" # Example specific permission
+    # Typically, creating/deleting organizations is a super-admin task outside general RBAC
+
 # Consider adding a helper to get all defined permission names if needed for seeding/admin UI
-ALL_DEFINED_PERMISSIONS = [
-    DepartmentPermissions.CREATE, DepartmentPermissions.READ, DepartmentPermissions.UPDATE, DepartmentPermissions.DELETE, DepartmentPermissions.LIST,
-    RolePermissions.CREATE, RolePermissions.READ, RolePermissions.UPDATE, RolePermissions.DELETE, RolePermissions.LIST, RolePermissions.ASSIGN_PERMISSIONS
-]
+ALL_DEFINED_PERMISSIONS = []
+for perm_enum in [DepartmentPermissions, RolePermissions, UserPermissions, LocationPermissions, ApplicationPermissions, ProcessPermissions, BIAParameterPermissions, OrganizationPermissions]:
+    for member_name, member_value in vars(perm_enum).items():
+        if not member_name.startswith('_') and isinstance(member_value, str):
+            ALL_DEFINED_PERMISSIONS.append(member_value)
 
 
-# Placeholder for OAuth2 scheme if you use token-based auth
-# oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token") # Adjust tokenUrl as needed
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login")
 
-def get_db() -> Generator[Session, None, None]:
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+# --- Token-based Current User ---
 
-# --- Placeholder for Current User ---
+# Define static UUIDs for the placeholder's default simulated user and organization
+# These match the DEFAULT_USER_ID and DEFAULT_ORG_ID in conftest.py for consistent behavior
+# when the placeholder is active (e.g., if tests use unauthenticated client by mistake for auth'd endpoints)
+DEFAULT_PLACEHOLDER_ORG_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
+DEFAULT_PLACEHOLDER_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000002")
+
 # This is a simplified version. In a real app, you'd decode a token
 # and fetch the user from the DB.
-async def get_current_user_placeholder(
-    db: Session = Depends(get_db),
-    # token: str = Depends(oauth2_scheme) # Uncomment if using token auth
-    # For now, let's simulate a user, e.g., user with ID 1 from org 1
-    # This MUST be replaced with actual authentication
-    simulated_user_id: int = 1, # Example: User ID 1
-    simulated_organization_id: int = 1 # Example: Org ID 1
-) -> PersonDB: # Returning SQLAlchemy model
-    print(f"DEBUG [deps.py get_current_user_placeholder]: Entered. DB session object ID: {id(db)}")
-    # In a real scenario, you'd decode a token to get user_id and organization_id
-    # and then fetch the user.
-    # ---- DEBUG PRINT START ----
-    print(f"DEBUG [deps.py]: Attempting to fetch user with person_id={simulated_user_id}, organization_id={simulated_organization_id} using db session: {db}")
-    # ---- DETAILED DEBUG PRINT START ----
-    user_initial_fetch = person_service.get_person_by_id(db, person_id=simulated_user_id, organization_id=simulated_organization_id)
-
-    if user_initial_fetch:
-        print(f"DEBUG [deps.py get_current_user_placeholder]: User initially fetched. Object ID: {id(user_initial_fetch)}")
-        # Re-fetch the user with the current session (db) and explicitly load organization
-        # to ensure it's bound to this session and avoid DetachedInstanceError.
-        user = (
-            db.query(PersonDB)
-            .options(
-                joinedload(PersonDB.organization),
-                joinedload(PersonDB.roles).joinedload(RoleDB.permissions)
-            )
-            .filter(PersonDB.id == user_initial_fetch.id)
-            .first()
+async def get_current_user_from_token(
+    db: AsyncSession = Depends(get_async_db),
+    token: str = Depends(oauth2_scheme)
+) -> UserDB:
+    """
+    Decodes the JWT token to extract user and organization identifiers, then fetches
+    the user from the database.
+    It eagerly loads the user's roles and permissions to prevent async lazy loading issues.
+    """
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(
+            token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
         )
-        if user:
-            print(f"DEBUG [deps.py get_current_user_placeholder]: User re-fetched/merged. Object ID: {id(user)}")
-        else:
-            # This should ideally not happen if user_initial_fetch was successful
-            print(f"DEBUG [deps.py get_current_user_placeholder]: User re-fetch failed!")
-            user = None # Explicitly set to None if re-fetch fails
-    else:
-        user = None
-        print(f"DEBUG [deps.py get_current_user_placeholder]: Initial user fetch failed.")
+        token_data = TokenPayload(**payload)
+        if token_data.sub is None or token_data.organization_id is None:
+            logger.error("Token is missing 'sub' or 'organization_id' fields.")
+            raise credentials_exception
 
-    # ---- DETAILED DEBUG PRINT START ----
-    if user:
-        print(f"DEBUG [deps.py get_current_user_placeholder]: User object ID: {id(user)}, Email: {user.email}")
-        try:
-            # Attempt to access related organization to see if it triggers issues
-            if user.organizationId == 1: # Only try for default org for this specific debug
-                org_instance = user.organization # Access the relationship
-                if org_instance:
-                    print(f"DEBUG [deps.py get_current_user_placeholder]: Accessed user.organization (ID: {org_instance.id}, Name: {org_instance.name}). Object ID: {id(org_instance)}")
-                else:
-                    print(f"DEBUG [deps.py get_current_user_placeholder]: user.organization is None even after access.")
-            else:
-                print(f"DEBUG [deps.py get_current_user_placeholder]: User's organizationId is not 1, not printing organization details.")
-        except Exception as e_org_access:
-            print(f"DEBUG [deps.py get_current_user_placeholder]: Error accessing user.organization: {type(e_org_access).__name__}: {e_org_access}")
-    else:
-        print(f"DEBUG [deps.py get_current_user_placeholder]: User not found by person_service.")
-    # ---- DETAILED DEBUG PRINT END ----
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    # For this placeholder, we assume it's part of the user object or can be derived.
-    # setattr(user, 'organizationId', simulated_organization_id) # Ensure org ID is accessible
+        # Convert string UUIDs from token back to UUID objects
+        user_id = uuid.UUID(token_data.sub)
+        organization_id = uuid.UUID(token_data.organization_id)
+
+    except (JWTError, ValueError) as e:
+        logger.error(f"Token validation failed: {e}")
+        raise credentials_exception
+
+    user = await user_service.get_user_by_id(db, user_id=user_id, organization_id=organization_id)
+    
+    if user is None:
+        logger.warning(f"User with ID '{user_id}' not found in organization '{organization_id}'.")
+        raise credentials_exception
+
     return user
 
-# --- RBAC Dependencies ---
+# Dependency to get current active user (can be used by any authenticated user for their own info)
+async def get_current_active_user(
+    current_user: UserDB = Depends(get_current_user_from_token),
+) -> UserDB:
+    print(f"DEBUG [deps.py get_current_active_user]: Entered for user {current_user.email if current_user else 'None'}")
+    if current_user:
+        print(f"DEBUG [deps.py get_current_active_user]: User is_active: {current_user.is_active}")
+    if not current_user.is_active:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Inactive user")
+    print(f"DEBUG [deps.py get_current_active_user]: Returning active user.")
+    return current_user
 
+# --- RBAC Dependencies ---
 # For Department Management (FR 1.1)
-def allow_department_management(current_user: PersonDB = Depends(get_current_user_placeholder)):
+def allow_department_management(current_user: UserDB = Depends(get_current_active_user)):
     # Check if the user has 'Admin' or 'BCM Manager' role
     # This assumes current_user.roles is a list of Role objects with a 'name' attribute
     allowed_roles = {"Admin", "BCM Manager"}
@@ -135,40 +165,30 @@ def RequirePermission(permission_name: str):
     """
     Dependency factory that creates a dependency to check for a specific permission.
     """
-    async def permission_checker(current_user: PersonDB = Depends(get_current_active_user)) -> PersonDB:
-        if not current_user.roles:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"User has no roles assigned. Access denied for permission: {permission_name}"
-            )
-        
-        for role in current_user.roles:
-            if role.permissions:
-                for perm in role.permissions:
-                    if perm.name == permission_name:
-                        return current_user # Permission found
-        
-        # If loop completes, permission was not found
+    async def permission_checker(current_user: UserDB = Depends(get_current_active_user)) -> UserDB:
+        user_permissions = {perm.name for role in current_user.roles if role and role.permissions for perm in role.permissions if perm and perm.name}
+        if permission_name in user_permissions:
+            return current_user
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"You do not have the required permission: '{permission_name}'"
-        )
+            detail="You do not have permission to perform this action."
+        )  
     return permission_checker
 
-# For People Management (FR 1.2) - Typically Admin only
-def allow_people_management(current_user: PersonDB = Depends(get_current_user_placeholder)):
+# For User Management (FR 1.2) - Typically Admin only
+def allow_user_management(current_user: UserDB = Depends(get_current_active_user)): 
     allowed_roles = {"Admin"}
     user_role_names = {role.name for role in current_user.roles}
     if not allowed_roles.intersection(user_role_names):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="You do not have permission to manage people."
+            detail="You do not have permission to manage users."
         )
     return current_user
 
-# For general read access to people/roles (e.g., by BCM Managers or Department Heads)
-def allow_people_read(current_user: PersonDB = Depends(get_current_user_placeholder)):
-    # More permissive: Admin, BCM Manager, Department Head might need to see people lists
+# For general read access to users/roles (e.g., by BCM Managers or Department Heads)
+def allow_user_read(current_user: UserDB = Depends(get_current_active_user)): 
+    # More permissive: Admin, BCM Manager, Department Head might need to see user lists
     allowed_roles = {"Admin", "BCM Manager", "Department Head"}
     user_role_names = {role.name for role in current_user.roles}
     if not allowed_roles.intersection(user_role_names):
@@ -176,13 +196,5 @@ def allow_people_read(current_user: PersonDB = Depends(get_current_user_placehol
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have permission to view this information."
         )
-    return current_user
-
-# Dependency to get current active user (can be used by any authenticated user for their own info)
-async def get_current_active_user(
-    current_user: PersonDB = Depends(get_current_user_placeholder),
-) -> PersonDB:
-    if not current_user.isActive:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Inactive user")
     return current_user
 

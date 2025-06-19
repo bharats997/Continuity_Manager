@@ -1,6 +1,17 @@
 fastapi
 uvicorn[standard]
 sqlalchemy
+alembic
 pymysql
 pydantic[email]
 python-dotenv
+pytest
+httpx
+passlib[bcrypt]
+bcrypt==4.0.1
+aiomysql
+aiosqlite
+greenlet
+typer[all]
+rich
+python-jose[cryptography]

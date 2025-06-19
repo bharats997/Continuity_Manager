@@ -130,10 +130,11 @@ This document outlines the product requirements for Phase 1 of the Business Cont
      * `GET /departments`: To retrieve a list of departments (filter by `organizationId`, sort by `name`).  
      * `GET /departments/{id}`: To retrieve a single department by ID.  
      * `PUT /departments/{id}`: To update an existing department.  
-       * Input validation: `name` uniqueness check during update. `departmentHeadId` and `locationIds` must exist.  
+       * Input validation: `name` uniqueness check during update. `departmentHeadId` and `locationIds` must exist. (Department Head ID validation: [COMPLETED - Cascade, 2025-06-02], Location IDs validation: [REVIEWED - Cascade, 2025-06-02])  
      * `DELETE /departments/{id}`: To soft delete (mark `isActive=FALSE`) a department.  
-   * Implement business logic for linking/unlinking multiple locations to a department.  
-   * Ensure all API endpoints respect the user's `organizationId` for data isolation (multi-tenancy).  
+   * Implement business logic for linking/unlinking multiple locations to a department.
+   * Fix NameError for OrganizationModel in department_service.py, enabling department creation and updates. [COMPLETED - Cascade, 2025-06-02]  
+   * Ensure all API endpoints respect the user's `organizationId` for data isolation (multi-tenancy). [VERIFIED for Dept Head Update - Cascade, 2025-06-02]  
    * Implement basic RBAC: Only users with 'BCM Manager' or 'Admin' roles can access these endpoints.  
 3. **Frontend (React/Tailwind):**  
    * Create a dedicated React component for 'Department Management'.  
@@ -155,7 +156,7 @@ This document outlines the product requirements for Phase 1 of the Business Cont
    * Integrate with backend API endpoints for CRUD operations.  
    * Apply UI/UX design guidelines: Primary Colors (Blue), Heading Font (Outfit), Body Font (DM Sans), minimalist, clean.
 
-**Windsurf, implement the above granular tasks for FR 1.1: Department Management.**
+**Windsurf, implement the above granular tasks for FR 1.1: Department Management.** [Backend tasks related to validation and core API functionality significantly progressed. Department Head cross-org validation fixed. All Department API tests (43) passing. - Cascade, 2025-06-02]
 
 ---
 
@@ -171,7 +172,7 @@ This document outlines the product requirements for Phase 1 of the Business Cont
    * **Test Case 1.1.2 (Retrieve Departments):**  
      * Action: Send GET request to `/departments`.  
      * Expected Result: HTTP 200 OK. List includes the newly created 'Finance' department.  
-   * **Test Case 1.1.3 (Update Department \- Success):**  
+   * **Test Case 1.1.3 (Update Department \- Success):** [PASSED - Cascade, 2025-06-02]  
      * Action: Send PUT request to `/departments/<finance_department_id>` with updated `name='Financial Operations'`, `numTeamMembers=30`, `locationIds=[<loc1_id>]`.  
      * Expected Result: HTTP 200 OK. Department record updated in `departments` table. `department_locations` updated to reflect single location.  
    * **Test Case 1.1.4 (Delete Department \- Soft Delete):**  
@@ -191,10 +192,10 @@ This document outlines the product requirements for Phase 1 of the Business Cont
    * **Test Case 1.1.8 (Update Department \- Non-existent ID):**  
      * Action: Send PUT request to `/departments/99999` (non-existent ID).  
      * Expected Result: HTTP 404 Not Found.  
-   * **Test Case 1.1.9 (Update Department \- Invalid Department Head ID):**  
+   * **Test Case 1.1.9 (Update Department \- Invalid Department Head ID):** [PASSED - Cascade, 2025-06-02]  
      * Action: Send PUT request to `/departments/<department_id>` with `departmentHeadId=<non_existent_user_id>`.  
      * Expected Result: HTTP 400 Bad Request. Error message indicating invalid foreign key.  
-   * **Test Case 1.1.10 (Update Department \- Invalid Location ID):**  
+   * **Test Case 1.1.10 (Update Department \- Invalid Location ID):** [PASSED - Cascade, 2025-06-02]  
      * Action: Send PUT request to `/departments/<department_id>` with `locationIds=[<non_existent_loc_id>]`.  
      * Expected Result: HTTP 400 Bad Request. Error message indicating invalid foreign key.  
    * **Test Case 1.1.11 (Create Department \- Max Length Values):**  

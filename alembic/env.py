@@ -10,7 +10,27 @@ from dotenv import load_dotenv
 # Add project root to sys.path to allow for absolute imports from backend
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, PROJECT_ROOT)
-from backend.app.models import Base
+from backend.app.db.session import Base  # Corrected import for Base
+# Ensure all models are imported here so Base.metadata is populated
+# All models are imported directly below to register them with the Base imported above.
+from backend.app.models.domain.users import User, user_roles_association  # noqa: F401
+from backend.app.models.domain.roles import Role  # noqa: F401
+from backend.app.models.domain.permissions import Permission, role_permissions_association  # noqa: F401
+from backend.app.models.domain.organizations import Organization  # noqa: F401
+from backend.app.models.domain.bia_categories import BIACategory  # noqa: F401
+from backend.app.models.domain.applications import Application  # noqa: F401
+from backend.app.models.domain.departments import Department, department_locations_association  # noqa: F401
+from backend.app.models.domain.locations import Location  # noqa: F401
+from backend.app.models.domain.processes import Process, process_locations_association, process_applications_association, process_dependencies_association  # noqa: F401
+from backend.app.models.domain.vendors import Vendor  # noqa: F401
+from backend.app.models.domain.bia_impact_scales import BIAImpactScale  # noqa: F401
+from backend.app.models.domain.bia_impact_scale_levels import BIAImpactScaleLevel  # noqa: F401
+from backend.app.models.domain.bia_timeframes import BIATimeframe  # noqa: F401
+from backend.app.models.domain.bia_impact_criteria import BIAImpactCriterion, BIAImpactCriterionLevel  # noqa: F401
+
+# Explicitly configure mappers after all models are imported if needed, though usually not required here
+# as models register themselves upon import when inheriting from Base.
+# Base.registry.configure() # This was in db/base.py, might be useful if auto-detection fails.
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

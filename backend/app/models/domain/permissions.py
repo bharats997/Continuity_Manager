@@ -1,22 +1,24 @@
 # backend/app/models/domain/permissions.py
-from sqlalchemy import Column, Integer, String, Text, Table, ForeignKey, DateTime
+import uuid
+from sqlalchemy import Column, String, Text, Table, ForeignKey, DateTime
+from ...db.custom_types import SQLiteUUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
-from ...database.session import Base # Assuming Base is in database.session
+from ...db.session import Base # Assuming Base is in database.session
 
 # Association table for Role and Permission many-to-many relationship
 role_permissions_association = Table(
     'role_permissions',
     Base.metadata,
-    Column('role_id', Integer, ForeignKey('roles.id', ondelete='CASCADE'), primary_key=True),
-    Column('permission_id', Integer, ForeignKey('permissions.id', ondelete='CASCADE'), primary_key=True)
+    Column('role_id', SQLiteUUID, ForeignKey('roles.id', ondelete='CASCADE'), primary_key=True),
+    Column('permission_id', SQLiteUUID, ForeignKey('permissions.id', ondelete='CASCADE'), primary_key=True)
 )
 
 class Permission(Base):
     __tablename__ = "permissions"
 
-    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    id = Column(SQLiteUUID, primary_key=True, default=uuid.uuid4, index=True)
     name = Column(String(255), nullable=False, unique=True, index=True) # e.g., "department:create", "user:read"
     description = Column(Text, nullable=True)
     createdAt = Column(DateTime(timezone=True), server_default=func.now())

@@ -1,8 +1,7 @@
-# backend/app/models/domain/__init__.py
-from .organizations import Organization
-from .departments import Department
-from .locations import Location
-from .applications import Application
-from .roles import Role
-from .people import Person, people_roles_association # people_roles_association is also needed by Base.metadata
-from .permissions import Permission, role_permissions_association # Ensure Alembic detects these
+# This file is intentionally left blank.
+# Models are imported directly by SQLAlchemy's discovery mechanism,
+# which is configured in app/db/base.py.
+# Importing them here can lead to circular dependency issues.
+
+from .bia_impact_criteria import BIAImpactCriterion, BIAImpactCriterionLevel
+from .bia_frameworks import BIAFramework, BIAFrameworkParameter, BIAFrameworkRTO
