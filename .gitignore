@@ -130,5 +130,12 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 
+# Test SQLite DBs
+*.sqlite
+*.sqlite*
+
+# macOS metadata
+.DS_Store
+
 # VSCode
 .vscode/

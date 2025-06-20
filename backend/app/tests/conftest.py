@@ -29,11 +29,17 @@ TEST_DB_FILENAME = "test_db.sqlite"
 TEST_DB_PATH = Path(__file__).parent / TEST_DB_FILENAME
 
 # Use the absolute path in the database URLs
-ASYNC_TEST_DB_URL = f"sqlite+aiosqlite:///{TEST_DB_PATH.resolve()}"
-SYNC_TEST_DB_URL = f"sqlite:///{TEST_DB_PATH.resolve()}" # For any sync operations
+ASYNC_TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
+SYNC_TEST_DB_URL = "sqlite:///:memory:"  # For any sync operations # For any sync operations
 
 os.environ['ASYNC_DATABASE_URL'] = ASYNC_TEST_DB_URL
-os.environ['DATABASE_URL'] = SYNC_TEST_DB_URL # Set sync URL too if used by any part of app
+os.environ['DATABASE_URL'] = SYNC_TEST_DB_URL  # Set sync URL too if used by any part of app
+
+# Ensure the FastAPI settings object sees these test URLs
+from app.config import settings as app_settings
+app_settings.ASYNC_TEST_DB_URL = ASYNC_TEST_DB_URL
+app_settings.SYNC_TEST_DB_URL = SYNC_TEST_DB_URL
+app_settings.TEST_DB_PATH = TEST_DB_PATH
 
 # Import app-specific modules after setting environment variables
 from fastapi import FastAPI
